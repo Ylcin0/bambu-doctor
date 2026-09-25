@@ -33,6 +33,7 @@ from .report import (
     write_extractables,
 )
 from .rules import ConfigError, apply_ignore, load_config
+from .plan import GoalBook, PlanError, build_plan, print_goal_list, render_plan
 from .web import serve as serve_web
 
 DEFAULT_OUT_DIR = "bambu-doctor-out"
@@ -94,6 +95,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("symptoms", parents=[common], help="列出所有已知症状")
+
+    # ---- plan：打印前给方案 -------------------------------------------------
+    p_plan = sub.add_parser(
+        "plan", parents=[common],
+        help="★ 给方案：说个目标（如「透明」），告诉你参数该怎么配",
+    )
+    p_plan.add_argument("goal", nargs="?", help="目标关键词，如「透明」")
+    p_plan.add_argument("--profile", metavar="NAME", help="按哪份耗材档算（默认第一份）")
+    p_plan.add_argument("--process", metavar="NAME", help="按哪份工艺档算（默认第一份）")
+    p_plan.add_argument("--hide-ok", action="store_true", help="不列已经对的项")
 
     # ---- serve：本地网页界面 ------------------------------------------------
     p_serve = sub.add_parser(
@@ -320,11 +331,57 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    try:
+        book = GoalBook.load()
+    except PlanError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    index = load_index(args)
+
+    goal = None
+    if args.goal:
+        goal = book.goals.get(args.goal)
+        if goal is None:
+            hits = book.match(args.goal)
+            if not hits:
+                print(f"没从「{args.goal}」里认出已知目标。\n", file=sys.stderr)
+                print_goal_list(book)
+                return 2
+            goal = hits[0][0]
+            if len(hits) > 1:
+                others = "、".join(g.name for g, _ in hits[1:4])
+                print(f"（匹配到多个目标，按「{goal.name}」算；也可能是：{others}）\n")
+    else:
+        print_goal_list(book)
+        print("用法：bambu-doctor plan 透明")
+        return 2
+
+    try:
+        plan = build_plan(
+            index, goal,
+            profile_name=args.profile,
+            process_name=getattr(args, "process", None),
+        )
+    except ValueError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    print(render_plan(plan, show_ok=not args.hide_ok))
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     index = load_index(args)
     kb = load_knowledge()
+    try:
+        goals = GoalBook.load()
+    except PlanError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
     server = serve_web(
-        index, kb,
+        index, kb, goals,
         host=args.host,
         port=args.port,
         open_browser=not args.no_browser,
@@ -339,6 +396,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 COMMANDS = {
+    "plan": cmd_plan,
     "diagnose": cmd_diagnose,
     "symptoms": cmd_symptoms,
     "serve": cmd_serve,

@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from .diagnose import STATUS_CONFIRMED, STATUS_EXCLUDED, STATUS_MANUAL, STATUS_UNDETERMINED, diagnose
 from .knowledge import KnowledgeBase
 from .profiles import ORIGIN_USER, ProfileIndex
+from .plan import LAYER_LABELS, GoalBook, build_plan as build_goal_plan
 from .vision import VisionError, identify
 
 # 照片转 base64 后 payload 会比原图大约 1/3
@@ -101,6 +102,8 @@ dd{min-width:0}
   display:inline-block; font-size:.72rem; padding:.1rem .45rem; border-radius:5px;
   background:var(--amber-bg); color:var(--amber); margin-left:.4rem; vertical-align:1px;
 }
+.badge--soft{background:var(--gray-bg); color:var(--muted)}
+.hint-step{color:var(--muted); font-size:.86rem; margin-left:.6rem}
 .ask{
   background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
   padding:1rem 1.1rem; margin-bottom:1.5rem;
@@ -225,7 +228,8 @@ async function pickPhoto(input) {
 """
 
 
-def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "") -> str:
+def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "",
+                goals: GoalBook | None = None) -> str:
     filaments = index.profiles(origin=ORIGIN_USER, kind="filament")
     if not filaments:
         return _page(
@@ -241,6 +245,16 @@ def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "") -> s
     )
 
     default_profile = selected or filaments[0].name
+    goal_cards = ""
+    if goals is not None:
+        goal_cards = "".join(
+            f'<div class="card sym"><h3>{esc(goal.name)}</h3>'
+            f"<p>{esc(goal.description)}</p>"
+            f'<p style="margin-top:.6rem">'
+            f'<a class="chip" href="/plan?goal={quote(goal.id)}'
+            f'&amp;profile={quote(default_profile)}">给我方案</a></p></div>'
+            for goal in sorted(goals.goals.values(), key=lambda g: g.id)
+        )
     cards = "".join(
         f'<div class="card sym"><h3>{esc(s.name)}</h3>'
         f"<p>{esc(s.description)}</p>"
@@ -263,7 +277,10 @@ def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "") -> s
 </div>
 {ask}
 {PHOTO_BLOCK}
-<h2 class="group g-neutral"><span class="dot"></span>你遇到了什么问题<span class="count">
+<h2 class="group g-manual"><span class="dot"></span>还没开始打？先说要打成什么样<span class="count">
+打印前给方案</span></h2>
+<div class="sym-grid">{goal_cards}</div>
+<h2 class="group g-neutral"><span class="dot"></span>已经打坏了？<span class="count">
 {len(kb.symptoms)} 个已收录症状</span></h2>
 <div class="sym-grid">{cards}</div>""",
     )
@@ -344,13 +361,92 @@ def render_result(report, kb: KnowledgeBase) -> str:
     )
 
 
+def render_plan_page(plan) -> str:
+    """打印前的方案页：要改什么、改成多少、为什么。"""
+    blocks = []
+
+    for layer, items in plan.by_layer("change").items():
+        cards = []
+        for i, change in enumerate(items, 1):
+            setting = change.setting
+            badge = (
+                '<span class="badge">必改</span>' if setting.priority == 1
+                else '<span class="badge badge--soft">建议</span>'
+            )
+            rows = [
+                f"<dt>现在</dt><dd>{esc(change.current)}</dd>",
+                f"<dt>改成</dt><dd><b>{esc(setting.target)}</b></dd>",
+            ]
+            if setting.why:
+                rows.append(f"<dt>为什么</dt><dd>{esc(setting.why)}</dd>")
+            if setting.note:
+                rows.append(f"<dt>注意</dt><dd>{esc(setting.note)}</dd>")
+            cards.append(
+                f'<div class="card c-confirmed"><h3><span class="no">{i}.</span>'
+                f"{esc(setting.label)}{badge}</h3><dl>{''.join(rows)}</dl></div>"
+            )
+        where = plan.profile_name if layer == "filament" else plan.process_name
+        blocks.append(
+            f'<h2 class="group g-confirmed"><span class="dot"></span>'
+            f"{esc(LAYER_LABELS.get(layer, layer))} 要改 {len(items)} 项"
+            f'<span class="count">{esc(where or "")}</span></h2>' + "".join(cards)
+        )
+
+    if not plan.group("change"):
+        blocks.append(
+            '<div class="card"><h3>已经全部到位了</h3>'
+            "<p>这套参数直接打就行。</p></div>"
+        )
+
+    ok = plan.group("ok")
+    if ok:
+        items = "".join(
+            f"<li>{esc(c.setting.label)}　{esc(c.current)}</li>" for c in ok
+        )
+        blocks.append(
+            f'<h2 class="group g-excluded"><span class="dot"></span>已经对的 {len(ok)} 项</h2>'
+            f'<div class="card"><ul>{items}</ul></div>'
+        )
+
+    if plan.goal.hints:
+        items = ""
+        for hint in sorted(plan.goal.hints, key=lambda h: h.priority):
+            items += f"<li>{esc(hint.text)}"
+            if hint.step:
+                items += f'<br><span class="hint-step">→ {esc(hint.step)}</span>'
+            items += "</li>"
+        blocks.append(
+            '<h2 class="group g-undetermined"><span class="dot"></span>不能省的步骤</h2>'
+            f'<div class="card"><ul>{items}</ul></div>'
+        )
+
+    tail = ""
+    if plan.goal.source_note:
+        tail += f'<p class="lead">依据：{esc(plan.goal.source_note)}</p>'
+    if plan.notes:
+        tail += '<div class="card"><ul>' + "".join(
+            f"<li>{esc(n)}</li>" for n in plan.notes
+        ) + "</ul></div>"
+
+    return _page(
+        f"{plan.goal.name} · bambu-doctor",
+        f"""<p class="lead"><a href="/">← 回首页</a></p>
+<h2 class="group g-manual" style="margin-top:.5rem">
+  <span class="dot"></span>{esc(plan.goal.name)}</h2>
+<p class="lead">耗材档「{esc(plan.profile_name)}」｜工艺档「{esc(plan.process_name or "无")}」｜机型 {esc(plan.machine or "未识别")}</p>
+<p class="lead">{esc(plan.goal.description)}</p>
+{''.join(blocks)}
+{tail}""",
+    )
+
+
 def render_error(message: str) -> str:
     return _page("出错了 · bambu-doctor", f'<p class="lead">{esc(message)}</p><p><a href="/">← 回到首页</a></p>')
 
 
 # ------------------------------------------------------------------ 服务
 
-def make_handler(index: ProfileIndex, kb: KnowledgeBase):
+def make_handler(index: ProfileIndex, kb: KnowledgeBase, goals: GoalBook):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, body: str, code: int = 200) -> None:
             payload = body.encode("utf-8")
@@ -427,7 +523,20 @@ def make_handler(index: ProfileIndex, kb: KnowledgeBase):
             try:
                 if parsed.path == "/":
                     selected = (params.get("profile") or [""])[0]
-                    self._send(render_home(index, kb, selected))
+                    self._send(render_home(index, kb, selected, goals))
+                    return
+
+                if parsed.path == "/plan":
+                    goal_id = (params.get("goal") or [""])[0]
+                    goal = goals.goals.get(goal_id)
+                    if goal is None:
+                        raise ValueError(f"未知目标「{goal_id}」")
+                    built = build_goal_plan(
+                        index, goal,
+                        profile_name=(params.get("profile") or [""])[0] or None,
+                        process_name=(params.get("process") or [""])[0] or None,
+                    )
+                    self._send(render_plan_page(built))
                     return
 
                 if parsed.path == "/diagnose":
@@ -460,9 +569,10 @@ def make_handler(index: ProfileIndex, kb: KnowledgeBase):
     return Handler
 
 
-def serve(index: ProfileIndex, kb: KnowledgeBase, host: str = "127.0.0.1",
-          port: int = 8000, open_browser: bool = True) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), make_handler(index, kb))
+def serve(index: ProfileIndex, kb: KnowledgeBase, goals: GoalBook,
+          host: str = "127.0.0.1", port: int = 8000,
+          open_browser: bool = True) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer((host, port), make_handler(index, kb, goals))
     shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     url = f"http://{shown}:{server.server_address[1]}/"
     print(f"bambu-doctor 已启动：{url}")

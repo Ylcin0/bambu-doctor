@@ -1,0 +1,172 @@
+# 目标处方：从「我想要什么效果」反推参数该设成多少
+#
+# 这和 causes.toml 是同一套知识的两个方向：
+#     causes.toml    症状 → 根因      （打坏了，查为什么）
+#     goals.toml     目标 → 参数      （打之前，该怎么配）
+# 为 B 写的每条机理，反过来就是 A 的一条处方——所以两者共享同一份事实。
+#
+# ── 字段 ──────────────────────────────────────────────────────────
+#   layer      这个参数属于哪类 profile：process / filament / machine
+#   target     目标值
+#   source     official = 有官方依据    experience = 经验值（输出里会区分）
+#   priority   1 = 必改（不改就达不到效果）  2 = 建议   3 = 可选
+#   applies    适用条件
+
+[[goal]]
+id = "transparent"
+name = "透明件（透光）"
+description = "让光穿过去：减少层间界面和内部空隙。参数方向跟平常常常相反——流量宁高勿低、风扇要关、墙要少"
+keywords = ["透明", "透光", "通透", "水晶", "半透明", "打透明"]
+source_note = "Bambu Lab 官方《透明/半透明 PLA/PETG 耗材打印指南》"
+
+# ── 工艺档 ────────────────────────────────────────────────────────
+
+[[goal.setting]]
+param = "layer_height"
+layer = "process"
+target = "0.1"
+why = "薄层让上下层真正熔合，界面消失"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "line_width"
+layer = "process"
+target = "0.5"
+why = "宽线截面扁平，能压进相邻线条里，缝更少"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "wall_loops"
+layer = "process"
+target = "1"
+why = "每多一层墙就多一个层间界面"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "top_shell_layers"
+layer = "process"
+target = "0"
+why = "顶壳走线方向和填充不同，交界处会散射；去掉它让填充直接通到底"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "bottom_shell_layers"
+layer = "process"
+target = "0"
+why = "和顶壳同理：走线方向和填充不同，交界处会散射"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "sparse_infill_density"
+layer = "process"
+target = "100%"
+why = "内部空隙是最大的散射源——光进去后在空腔里乱反射，出来就是一片白雾"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "sparse_infill_pattern"
+layer = "process"
+target = "line"
+why = "直线填充让线条同向排列，光路一致；网格会让线条反复交叉换向，每次换向都制造交界和空隙"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "sparse_infill_direction"
+layer = "process"
+target = "0"
+why = "配合直线填充，让方向统一"
+source = "official"
+priority = 2
+
+[[goal.setting]]
+param = "outer_wall_speed"
+layer = "process"
+target = "20"
+why = "慢速让层间有充分的熔合时间"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "inner_wall_speed"
+layer = "process"
+target = "20"
+why = "慢速让层间有充分的熔合时间（和外壳同理）"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "sparse_infill_speed"
+layer = "process"
+target = "20"
+why = "慢速让层间有充分的熔合时间（填充尤其重要——它占整个件的内部）"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "initial_layer_speed"
+layer = "process"
+target = "20"
+why = "首层慢速能让底面更平整，光从底面进出时散射更少"
+source = "official"
+priority = 2
+
+# ── 耗材档 ────────────────────────────────────────────────────────
+
+[[goal.setting]]
+param = "fan_max_speed"
+layer = "filament"
+target = "0"
+why = "风扇让线条过快冷却定型，上层还没和下层熔合就固化了，界面被保留下来"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "fan_min_speed"
+layer = "filament"
+target = "0"
+why = "和上限同理：风扇让线条过快冷却定型，界面被保留下来"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "filament_flow_ratio"
+layer = "filament"
+target = "0.98"
+why = "流量不足时相邻线条之间填不满，留下的细缝就是散射线。透明件对流量宁高勿低"
+source = "official"
+priority = 1
+
+[[goal.setting]]
+param = "nozzle_temperature"
+layer = "filament"
+target = "250"
+why = "温度越高熔体流动性越好，上层能更充分熔合下层"
+source = "experience"
+priority = 2
+note = "官方只说「用高温设置」，没给具体数值——这个 250 是经验值，先按 +5℃ 试"
+
+# ── 提示 ──────────────────────────────────────────────────────────
+
+[[goal.hint]]
+text = "最关键的一步不在参数里：打之前必须烘干。受潮的料在喷嘴加热时水分汽化，会在挤出线条里形成气泡，直接让件发白"
+step = "烘干：PETG 建议 65℃ / 8 小时以上，打完立刻放回密封容器"
+priority = 1
+
+[[goal.hint]]
+text = "层高 0.1 + 100% 填充 + 20mm/s 会让打印时间翻好几倍——先打 20mm 立方体试，别直接上大件"
+priority = 1
+
+[[goal.hint]]
+text = "后处理对透明度提升最大：400→800→1500→2000 目砂纸逐级湿磨，或喷透明清漆"
+priority = 3
+
+[[goal.hint]]
+text = "官方推荐 0.8mm 喷嘴（线条更少、交接线更少）。手上有 0.4 就先用 0.4 按这套参数试"
+priority = 3

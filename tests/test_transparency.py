@@ -36,6 +36,7 @@ def transparent_setup(
     bottom_shells="3",
     density="15%",
     pattern="grid",
+    direction="0",
     speed="200",
     flow="0.94752",
     temp="245",
@@ -59,7 +60,11 @@ def transparent_setup(
         "bottom_shell_layers": bottom_shells,
         "sparse_infill_density": density,
         "sparse_infill_pattern": pattern,
+        "sparse_infill_direction": direction,
         "outer_wall_speed": [speed],
+        "inner_wall_speed": [speed],
+        "sparse_infill_speed": [speed],
+        "initial_layer_speed": [speed],
     })
     return studio
 
