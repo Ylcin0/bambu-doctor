@@ -107,6 +107,10 @@ class ProfileIndex:
     def __init__(self) -> None:
         self.user: dict[str, Profile] = {}
         self.system: dict[str, Profile] = {}
+        # 按名字索引的字典会让**同名的耗材档/工艺档互相覆盖**（Bambu 里它们
+        # 本来就是两个独立列表，同名完全合法），所以另存一份全量列表。
+        self.user_all: list[Profile] = []
+        self.system_all: list[Profile] = []
         self.templates: dict[tuple[str, str], str] = {}
 
     # ------------------------------------------------------------ 构建
@@ -167,6 +171,7 @@ class ProfileIndex:
         # 同名时用户档优先（用户可能复制官方档并改过）
         target = self.user if origin == ORIGIN_USER else self.system
         target.setdefault(profile.name, profile)
+        (self.user_all if origin == ORIGIN_USER else self.system_all).append(profile)
 
     def _add_template(self, path: Path) -> None:
         base, _, field = path.stem.partition(" template ")
@@ -188,33 +193,65 @@ class ProfileIndex:
     # ------------------------------------------------------------ 查询
 
     def get(self, name: str) -> Profile | None:
-        """按名字取 profile，用户档优先。"""
+        """按名字取 profile，用户档优先。
+
+        ⚠️ 只按名字查，遇到**同名**的耗材档/工艺档会撞车（Bambu 里它们是
+        两个独立列表，同名完全合法）。需要确定类型时用 find()。
+        """
         return self.user.get(name) or self.system.get(name)
 
+    def find(self, name: str, kind: str) -> Profile | None:
+        """按 (名字, 类型) 取 profile，用户档优先。"""
+        for profile in (*self.user_all, *self.system_all):
+            if profile.name == name and profile.kind == kind:
+                return profile
+        return None
+
     def profiles(self, origin: str | None = None, kind: str | None = None) -> list[Profile]:
-        source = self.user if origin == ORIGIN_USER else (
-            self.system if origin == ORIGIN_SYSTEM else {**self.system, **self.user}
-        )
-        items = list(source.values())
+        if origin == ORIGIN_USER:
+            items = list(self.user_all)
+        elif origin == ORIGIN_SYSTEM:
+            items = list(self.system_all)
+        else:
+            # 两边的档都要，但同名**同类型**时用户档覆盖官方档。
+            # 键用 (类型, 名字) 而不是只用名字——否则用户建一个和官方同名的
+            # 工艺档，会把官方那个耗材档挤掉。
+            merged: dict[tuple[str, str], Profile] = {}
+            for profile in (*self.system_all, *self.user_all):
+                merged[(profile.kind, profile.name)] = profile
+            items = list(merged.values())
         if kind:
             items = [p for p in items if p.kind == kind]
         return sorted(items, key=lambda p: (p.kind, p.name))
 
-    def chain(self, name: str, limit: int = 16) -> list[str]:
-        """继承链，从自己到最远祖先。断链处会标注并停止。"""
+    def chain(self, name: str | Profile, limit: int = 16) -> list[str]:
+        """继承链，从自己到最远祖先。
+
+        起点可以传名字或 Profile 对象——传对象是为了避开同名档撞车
+        （耗材档和工艺档可以同名）。往后的层都来自 inherits 字段，全局唯一。
+
+        ⚠️ 链路断掉时，**那个不存在的父级名字也会被列进来**——上层要靠它
+        报出「断链继承」（从别的机器/插件拷来的档就会这样）。
+        """
         chain: list[str] = []
-        current = name
-        while current and len(chain) < limit:
-            if current in chain:
+        current = name if isinstance(name, Profile) else self.get(name)
+        while current is not None and len(chain) < limit:
+            if current.name in chain:
                 break
-            chain.append(current)
-            profile = self.get(current)
-            if profile is None:
+            chain.append(current.name)
+            parent_name = current.inherits
+            if not parent_name:
                 break
-            current = profile.inherits
+            parent = self.get(parent_name)
+            if parent is None:
+                # 断链：把不存在的父级也列出来，上层靠它报「断链继承」
+                if parent_name not in chain and len(chain) < limit:
+                    chain.append(parent_name)
+                break
+            current = parent
         return chain
 
-    def resolve(self, name: str) -> tuple[dict, dict[str, str]]:
+    def resolve(self, name: str | Profile) -> tuple[dict, dict[str, str]]:
         """
         沿继承链合并参数。返回 (values, layers)：
 
@@ -224,18 +261,27 @@ class ProfileIndex:
         合并规则：父级打底，子级覆盖。写成迭代而非递归，避免深链爆栈。
         """
         chain = self.chain(name)
+        # 第一层要用传进来的对象：耗材档和工艺档可以同名，按名字查会拿错档。
+        # 往后的层来自 inherits 字段，全局唯一，按名字查没问题。
+        head = name if isinstance(name, Profile) else None
+        profiles: list[Profile] = []
+        for layer_name in chain:
+            if head is not None and layer_name == chain[0]:
+                profiles.append(head)
+                continue
+            found = self.get(layer_name)
+            if found is not None:
+                profiles.append(found)
+
         values: dict = {}
         layers: dict[str, str] = {}
         # 从最远的祖先往回合并
-        for layer_name in reversed(chain):
-            profile = self.get(layer_name)
-            if profile is None:
-                continue
+        for profile in reversed(profiles):
             for key, value in profile.data.items():
                 if key in META_KEYS or key == "inherits":
                     continue
                 values[key] = value
-                layers[key] = layer_name
+                layers[key] = profile.name
         return values, layers
 
     def baseline_source(self, profile: Profile) -> str:

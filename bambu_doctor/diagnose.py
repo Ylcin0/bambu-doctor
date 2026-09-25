@@ -64,7 +64,11 @@ class Verifier:
         self.index = index
         self.profile_name = profile_name
         self.target = target
-        self.values, self.layers = index.resolve(profile_name)
+        # 按类型找——耗材档和工艺档可以同名，只按名字会拿错档
+        profile = index.find(profile_name, "filament") or index.get(profile_name)
+        self.values, self.layers = (
+            index.resolve(profile) if profile is not None else ({}, {})
+        )
         self.process_values, self.process_layers = self._process_context(process_name)
         self.machine_values, self.machine_layers = self._machine_context()
         self.baseline_values, self.baseline_name = self._find_baseline()
@@ -77,15 +81,10 @@ class Verifier:
         必须看工艺档，否则会把用户已经调好的层高判成"没设置"。
         """
         if name:
-            try:
-                return self.index.resolve(name)
-            except Exception:
-                return {}, {}
+            profile = self.index.find(name, "process")
+            return self.index.resolve(profile) if profile is not None else ({}, {})
         for profile in self.index.profiles(origin=ORIGIN_USER, kind="process"):
-            try:
-                return self.index.resolve(profile.name)
-            except Exception:
-                continue
+            return self.index.resolve(profile)
         return {}, {}
 
     # ------------------------------------------------------------ 参数查找
@@ -98,7 +97,7 @@ class Verifier:
         诊断时必须一起看，否则会把"机器档里设过的参数"误判成"整条链上都没人设过"。
         """
         for profile in self.index.profiles(origin=ORIGIN_USER, kind="machine"):
-            return self.index.resolve(profile.name)
+            return self.index.resolve(profile)
         return {}, {}
 
     def _lookup(self, param: str) -> tuple[object, str]:
@@ -276,9 +275,9 @@ def diagnose(
         raise ValueError("没有找到自定义耗材 profile，无法诊断（先把你的耗材档存进 Bambu Studio）")
 
     if profile_name:
-        profile = index.user.get(profile_name)
+        profile = index.find(profile_name, "filament")
         if profile is None:
-            names = ", ".join(p.name for p in filaments)
+            names = "、".join(p.name for p in filaments)
             raise ValueError(f"找不到耗材 profile「{profile_name}」。你的耗材档：{names}")
     else:
         profile = filaments[0]

@@ -226,7 +226,7 @@ def build_plan(index: ProfileIndex, goal: Goal, profile_name: str | None = None,
         raise ValueError("没有找到自定义耗材 profile，没法给方案（先把耗材档存进 Bambu Studio）")
 
     if profile_name:
-        profile = index.user.get(profile_name)
+        profile = index.find(profile_name, "filament")
         if profile is None:
             names = "、".join(p.name for p in filaments)
             raise ValueError(f"找不到耗材 profile「{profile_name}」。你的耗材档：{names}")
@@ -234,7 +234,7 @@ def build_plan(index: ProfileIndex, goal: Goal, profile_name: str | None = None,
         profile = filaments[0]
 
     processes = index.profiles(origin=ORIGIN_USER, kind="process")
-    if process_name and index.user.get(process_name) is None:
+    if process_name and index.find(process_name, "process") is None:
         names = "、".join(p.name for p in processes) or "（一份都没有）"
         raise ValueError(f"找不到工艺 profile「{process_name}」。你的工艺档：{names}")
     used_process = process_name or (processes[0].name if processes else "")
