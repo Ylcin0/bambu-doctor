@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bambu-doctor"
+version = "0.1.0"
+description = "体检你的 Bambu Studio profile：解析继承链、找出参数隐患、生成调参对照表"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "bambu-doctor contributors" }]
+keywords = ["bambu", "bambulab", "bambu-studio", "3d-printing", "fdm", "slicer", "profile"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Printing",
+]
+
+[project.urls]
+Homepage = "https://github.com/"
+
+[project.scripts]
+bambu-doctor = "bambu_doctor.cli:main"
+
+[tool.setuptools]
+packages = ["bambu_doctor"]
