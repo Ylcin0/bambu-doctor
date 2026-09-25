@@ -1,5 +1,7 @@
 # bambu-doctor
 
+[![tests](https://github.com/Ylcin0/bambu-doctor/actions/workflows/tests.yml/badge.svg)](https://github.com/Ylcin0/bambu-doctor/actions/workflows/tests.yml)
+
 **体检你的 Bambu Studio profile** —— 解析 profile 的继承链，找出藏在里面的参数隐患，并生成「你的值 vs 官方基线」调参对照表。
 
 纯本地分析，不联网、不上传任何数据、零第三方依赖。
