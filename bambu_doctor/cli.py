@@ -33,6 +33,7 @@ from .report import (
     write_extractables,
 )
 from .rules import ConfigError, apply_ignore, load_config
+from .web import serve as serve_web
 
 DEFAULT_OUT_DIR = "bambu-doctor-out"
 
@@ -89,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("symptoms", parents=[common], help="列出所有已知症状")
+
+    # ---- serve：本地网页界面 ------------------------------------------------
+    p_serve = sub.add_parser(
+        "serve", parents=[common], help="★ 打开网页界面（浏览器里点症状看结果）"
+    )
+    p_serve.add_argument(
+        "--host", default="127.0.0.1",
+        help="监听地址（默认只本机能开；--host 0.0.0.0 让同一 Wi-Fi 下的手机也能访问）",
+    )
+    p_serve.add_argument("--port", type=int, default=8000, help="端口（默认 8000）")
+    p_serve.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
 
     # ---- check：profile 体检 ------------------------------------------------
     p_check = sub.add_parser(
@@ -300,9 +312,28 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    index = load_index(args)
+    kb = load_knowledge()
+    server = serve_web(
+        index, kb,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n已停止。")
+    finally:
+        server.server_close()
+    return 0
+
+
 COMMANDS = {
     "diagnose": cmd_diagnose,
     "symptoms": cmd_symptoms,
+    "serve": cmd_serve,
     "check": cmd_check,
     "extract": cmd_extract,
     "report": cmd_report,

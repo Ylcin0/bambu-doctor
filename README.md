@@ -61,6 +61,24 @@ $ bambu-doctor diagnose "细拉丝，薄件也有"
 
 `【已排除】`这一组和`【判断】`同样重要：它把"网上搜到的常见答案"里**不适用于你**的部分先划掉，你不用再一条条试。
 
+## 网页界面
+
+不想敲命令就：
+
+```bash
+bambu-doctor serve
+```
+
+浏览器会自动打开（默认 http://127.0.0.1:8000）：
+
+- 首页列出所有症状，点一下就出结果
+- 结果按 **判断成立 / 需要你自己查 / 数据不足 / 已排除** 四组分色显示
+- 深色模式自动适配；手机浏览器也能用
+
+默认**只绑 `127.0.0.1`，不对局域网开放**。要让手机访问得显式加 `--host 0.0.0.0`——注意那样同一网段的人也能打开它。
+
+零依赖：只用 Python 标准库的 `http.server`，页面是服务端渲染的 HTML + 内联 CSS，不装任何前端框架。页面里所有来自知识库的文本都做过 HTML 转义（知识库是别人能提 PR 的数据文件，不转义等于让别人往你浏览器里塞脚本）。
+
 ### 它为什么不会瞎说
 
 分工是硬性的，不允许 AI 一条龙给建议：
@@ -129,6 +147,9 @@ bambu-doctor diagnose --profile "Bambu PETG White"  # 指定用哪份耗材档�
 bambu-doctor diagnose --brief                # 精简输出（不列已排除项）
 
 bambu-doctor symptoms         # 列出所有已知症状
+
+bambu-doctor serve            # ★ 网页界面（浏览器里点症状看结果）
+bambu-doctor serve --host 0.0.0.0   # 让同一 Wi-Fi 下的手机也能访问
 
 bambu-doctor                  # 体检（默认命令，等同于 check）
 bambu-doctor check            # 同上
