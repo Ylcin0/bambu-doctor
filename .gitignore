@@ -20,3 +20,7 @@ Thumbs.db
 
 # 切勿提交任何从用户机器导出的真实 profile 数据
 examples/private/
+
+# API key 绝不能进仓库
+.env
+.bambu-doctor.env

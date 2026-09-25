@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import base64
 import html
+import json
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
@@ -19,6 +21,10 @@ from urllib.parse import parse_qs, quote, urlparse
 from .diagnose import STATUS_CONFIRMED, STATUS_EXCLUDED, STATUS_MANUAL, STATUS_UNDETERMINED, diagnose
 from .knowledge import KnowledgeBase
 from .profiles import ORIGIN_USER, ProfileIndex
+from .vision import VisionError, identify
+
+# 照片转 base64 后 payload 会比原图大约 1/3
+MAX_UPLOAD_BYTES = 18 * 1024 * 1024
 
 CSS = """
 :root{
@@ -118,6 +124,12 @@ footer{
   color:var(--muted); font-size:.8rem; border-top:1px solid var(--border);
 }
 .empty{color:var(--muted); font-size:.9rem}
+.warn{color:var(--red); font-size:.88rem}
+input[type=file]{font-size:.9rem; color:var(--muted); max-width:100%}
+#photo-result{margin-top:.85rem}
+.photo-card{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:.85rem 1rem}
+.photo-card .obs{font-size:.86rem; color:var(--muted); margin:.3rem 0 .65rem}
+.photo-card .conf{font-size:.8rem; color:var(--muted)}
 @media (max-width:520px){
   dl{grid-template-columns:1fr; gap:.15rem}
   dt{padding-top:.5rem}
@@ -145,14 +157,73 @@ def _page(title: str, body: str) -> str:
 </div></header>
 <main>{body}</main>
 <footer>
-  全部本地分析，不联网、不上传任何数据。判断由确定性规则给出，
-  AI 只负责识别现象（尚未接入）。
+  不配 AI 时全部本地分析；看图会把照片发给你自己配置的服务商。
+  判断由确定性规则给出，AI 只负责识别照片里的现象，不参与推理。
 </footer>
 </body>
 </html>"""
 
 
 # ------------------------------------------------------------------ 页面
+
+PHOTO_BLOCK = """
+<div class="picker">
+  <label>或者：拍/传一张照片，让 AI 判断是什么问题</label>
+  <input type="file" accept="image/*" onchange="pickPhoto(this)">
+  <div id="photo-result"></div>
+</div>
+<script>
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+async function pickPhoto(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const box = document.getElementById('photo-result');
+  box.innerHTML = '<p class="empty">正在识别…（第一次调用要几秒）</p>';
+  try {
+    const b64 = await new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const resp = await fetch('/identify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image: b64, mime: file.type || 'image/jpeg'})
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      box.innerHTML = '<p class="warn">' + escHtml(data.error) + '</p>';
+      return;
+    }
+    const seen = (data.observed || []).map(escHtml).join('；');
+    if (!data.known) {
+      box.innerHTML = '<div class="photo-card"><b>没认出是哪种问题</b>'
+        + '<p class="obs">看到的：' + seen + '</p>'
+        + '<p class="warn">' + escHtml(data.note) + '</p>'
+        + '<p class="empty">换一张更清楚的照片（对准出问题的部位、别隔太远、光线足一些），'
+        + '或者直接在上面选一个最接近的症状。</p></div>';
+      return;
+    }
+    box.innerHTML = '<div class="photo-card"><b>照片识别：' + escHtml(data.name) + '</b>'
+      + '<p class="obs">看到的：' + seen + '</p>'
+      + '<p class="conf">置信度 ' + escHtml(data.confidence)
+      + (data.alternative_name ? ('　也可能是：' + escHtml(data.alternative_name)) : '')
+      + (data.note ? ('　' + escHtml(data.note)) : '') + '</p>'
+      + '<p style="margin-top:.65rem"><a class="chip" href="/diagnose?symptom='
+      + encodeURIComponent(data.symptom) + '&profile='
+      + encodeURIComponent(data.profile) + '">看诊断结果 →</a></p></div>';
+  } catch (err) {
+    box.innerHTML = '<p class="warn">识别失败：' + escHtml(err) + '</p>';
+  }
+}
+</script>
+"""
+
 
 def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "") -> str:
     filaments = index.profiles(origin=ORIGIN_USER, kind="filament")
@@ -191,6 +262,7 @@ def render_home(index: ProfileIndex, kb: KnowledgeBase, selected: str = "") -> s
   </select>
 </div>
 {ask}
+{PHOTO_BLOCK}
 <h2 class="group g-neutral"><span class="dot"></span>你遇到了什么问题<span class="count">
 {len(kb.symptoms)} 个已收录症状</span></h2>
 <div class="sym-grid">{cards}</div>""",
@@ -288,6 +360,65 @@ def make_handler(index: ProfileIndex, kb: KnowledgeBase):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(payload)
+
+        def _send_json(self, payload: dict, code: int = 200) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:  # noqa: N802 - stdlib 接口
+            parsed = urlparse(self.path)
+            if parsed.path != "/identify":
+                self._send_json({"ok": False, "error": "这个地址不接受 POST"}, 404)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0 or length > MAX_UPLOAD_BYTES:
+                self._send_json(
+                    {"ok": False, "error": "上传内容为空或过大（照片请先压一下）"}, 413
+                )
+                return
+
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                image = base64.b64decode(payload.get("image") or "")
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"请求格式不对：{exc}"}, 400)
+                return
+
+            profile = (parse_qs(parsed.query).get("profile") or [""])[0]
+            try:
+                sighting = identify(
+                    image, kb, mime=payload.get("mime") or "image/jpeg"
+                )
+            except VisionError as exc:
+                # 识别失败不是错误页——降级成"手动选症状"就是了
+                self._send_json({"ok": False, "error": str(exc)})
+                return
+
+            known = sighting.is_known
+            symptom = kb.get_symptom(sighting.symptom_id) if known else None
+            alternative = (
+                kb.get_symptom(sighting.alternative) if sighting.alternative else None
+            )
+            self._send_json({
+                "ok": True,
+                "known": known,
+                "symptom": sighting.symptom_id,
+                "name": symptom.name if symptom else "",
+                "alternative_name": alternative.name if alternative else "",
+                "observed": sighting.observed,
+                "confidence": sighting.confidence,
+                "note": sighting.note,
+                "profile": profile,
+            })
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib 接口
             parsed = urlparse(self.path)

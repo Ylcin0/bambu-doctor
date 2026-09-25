@@ -108,8 +108,10 @@ class TestEscaping(unittest.TestCase):
             kb = KnowledgeBase.load(d)
             studio = setup(tmp)
             html = render_home(studio.index(), kb)
-            self.assertNotIn("<script>", html)
-            self.assertIn("&lt;script&gt;", html)
+            # 页面自己就有内联 <script>（照片上传的 JS），所以只能断言
+            # "恶意的那段没被原样输出"，不能笼统禁 <script>
+            self.assertNotIn("<script>alert(1)</script>", html)
+            self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
 
     def test_profile_name_is_escaped(self):
         with tempfile.TemporaryDirectory() as tmp:
