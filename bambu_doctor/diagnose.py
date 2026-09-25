@@ -120,14 +120,20 @@ class Verifier:
             return Verdict(cause=cause, status=STATUS_MANUAL)
 
         results = [self._run(chk) for chk in cause.checks]
-        # 多条检查可能给出同样的说明（比如同一参数被两条 check 各报一次），去重
+
+        if any(ok is True for ok, _ in results):
+            # 只保留**成立**的那几条依据。把"已设置：100%"这类"不成立"分支的
+            # 说明混进"判断成立"里，读者会以为结论在自我否定。
+            hits: list[str] = []
+            for ok, text in results:
+                if ok is True and text not in hits:
+                    hits.append(text)
+            return Verdict(cause=cause, status=STATUS_CONFIRMED, evidence=hits)
+
         evidence: list[str] = []
         for _, text in results:
             if text not in evidence:
                 evidence.append(text)
-
-        if any(ok is True for ok, _ in results):
-            return Verdict(cause=cause, status=STATUS_CONFIRMED, evidence=evidence)
         if all(ok is False for ok, _ in results):
             return Verdict(cause=cause, status=STATUS_EXCLUDED, evidence=evidence)
         return Verdict(cause=cause, status=STATUS_UNDETERMINED, evidence=evidence)
@@ -336,4 +342,5 @@ def render_text(report: Report, show_evidence: bool = True) -> str:
     for note in report.notes:
         lines.append(f"注：{note}")
 
-    return "\n".join(lines)
+    # 终端不渲染 markdown，去掉加粗标记（数据里保留，将来做网页界面时还能用）
+    return "\n".join(lines).replace("**", "")
