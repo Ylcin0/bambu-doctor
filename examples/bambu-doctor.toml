@@ -1,0 +1,32 @@
+# bambu-doctor 规则豁免配置（示例）
+#
+# 用法：把本文件复制成 .bambu-doctor.toml，放在当前目录或用户主目录即可自动生效；
+#       也可以用 bambu-doctor --config <路径> 指定。
+#
+# 为什么需要它：体检规则是"提醒"不是"判决"。有些偏离是你有意为之的——
+# 每次跑都报同一批已知项，人就不看报告了。
+
+[check]
+# 全局关闭某条规则。规则号见 README：
+#   R1 断链继承 / R2 跨机型继承 / R3 温度偏离 /
+#   R4 参数落空 / R5 重复档 / R6 继承链深度
+# disable = ["R5"]
+
+
+# ---------------------------------------------------------------- 逐条豁免
+# profile 是子串匹配；rules 不给表示该 profile 的全部规则都豁免。
+
+[[ignore]]
+profile = "SUNLU PETG"
+rules = ["R3"]
+reason = "有意降温压拉丝，这卷料 245℃ 拉丝明显"
+
+[[ignore]]
+profile = "拷来的PETG"
+rules = ["R2", "R3"]
+reason = "从 X1C 拷来的 profile，温度我自己控，不用提醒"
+
+# 只写 rules 不写 profile = 对所有 profile 关掉这条规则
+# [[ignore]]
+# rules = ["R6"]
+# reason = "继承链信息我已经清楚"

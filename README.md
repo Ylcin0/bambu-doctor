@@ -96,6 +96,30 @@ bambu-doctor --studio-dir /path/to/BambuStudio
 
 退出码：有 warning 时 `--strict` 返回 1；默认只对 error（目前没有规则产生 error）返回 1。
 
+### 规则豁免
+
+体检规则是**提醒**，不是判决。有些偏离是你有意为之的（比如为了压拉丝主动降温 15℃），每次跑都报同一批已知项，人就不看报告了。用配置文件声明"这条我知道"：
+
+```toml
+# .bambu-doctor.toml　放在当前目录或用户主目录即自动生效
+[check]
+disable = ["R5"]              # 全局关闭某条规则
+
+[[ignore]]                    # 针对特定 profile 豁免
+profile = "SUNLU PETG"        # 子串匹配
+rules = ["R3"]
+reason = "有意降温压拉丝"      # 豁免理由会出现在输出里
+```
+
+```bash
+bambu-doctor --config my.toml     # 指定配置文件
+bambu-doctor check --show-ignored # 列出被豁免的发现
+```
+
+查找顺序：`--config` → 当前目录 → 用户主目录。完整示例见 `examples/bambu-doctor.toml`。
+
+两点设计上的克制：**一条空配置不会吞掉所有发现**（避免危险的静默失败）；被豁免的数量**总是会报出来**，不会悄悄消失。
+
 ## 数据来源
 
 全部从你本机读取：
