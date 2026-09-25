@@ -27,5 +27,10 @@ Homepage = "https://github.com/"
 [project.scripts]
 bambu-doctor = "bambu_doctor.cli:main"
 
+[project.optional-dependencies]
+# Python 3.10 及以下没有内置 tomllib，规则豁免配置需要 tomli：
+#   pip install "bambu-doctor[toml]"
+toml = ["tomli>=1.1; python_version < '3.11'"]
+
 [tool.setuptools]
 packages = ["bambu_doctor"]
