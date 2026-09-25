@@ -1,13 +1,15 @@
 """命令行入口。
 
     bambu-doctor                # 体检（默认）
-    bambu-doctor check          # 同上，--strict 时有 warning 则退出码 1
+    bambu-doctor diagnose       # ★ 诊断：从症状查到该改哪个参数
+    bambu-doctor symptoms       # 列出所有已知症状
+    bambu-doctor check          # 体检 profile 里的参数隐患
     bambu-doctor extract        # 生成 profile 档案（markdown）
     bambu-doctor report         # 打印调参真值表
-    bambu-doctor export         # 导出 JSON（供其他工具消费）
+    bambu-doctor export         # 导出 JSON
 
-所有命令都支持 `--studio-dir <路径>` 手动指定 Bambu Studio 配置目录。
-体检结果可用 `--config` 指定的 TOML 文件豁免（见 README 的「规则豁免」）。
+所有命令都支持 `--studio-dir`（Bambu Studio 配置目录）和
+`--config`（规则豁免配置文件，见 README）。
 """
 
 from __future__ import annotations
@@ -19,7 +21,9 @@ from pathlib import Path
 
 from . import __version__
 from .checks import count_by_level, detect_target_machine, run_checks
+from .diagnose import diagnose, render_text
 from .discovery import DiscoveryError, load_layout
+from .knowledge import KnowledgeBase, KnowledgeError
 from .profiles import ProfileIndex
 from .report import (
     render_console,
@@ -34,7 +38,7 @@ DEFAULT_OUT_DIR = "bambu-doctor-out"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    # --studio-dir / --config 在顶层和子命令下都要能用：`check --config x.py` 是
+    # --studio-dir / --config 在顶层和子命令下都要能用：`check --config x` 是
     # 很自然的写法，但 argparse 默认只认写在子命令前面的全局选项。
     # 子命令侧用 SUPPRESS 当默认值——这样写在子命令后面时不会把顶层给的值
     # 覆盖成 None（普通 default 会覆盖）。
@@ -54,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="bambu-doctor",
-        description="体检你的 Bambu Studio profile：解析继承链、找出参数隐患、生成调参对照表。",
+        description="Bambu Lab 打印问题顾问：从症状查到该改哪个参数。",
         epilog="全部本地分析，不联网、不上传任何数据。",
         parents=[common],
     )
@@ -62,6 +66,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command")
 
+    # ---- diagnose：核心命令 -------------------------------------------------
+    p_diag = sub.add_parser(
+        "diagnose", parents=[common],
+        help="★ 诊断：描述现象，查出该改哪个参数",
+    )
+    p_diag.add_argument(
+        "text", nargs="?",
+        help='用一句话描述现象，如 "细拉丝，薄件也有"',
+    )
+    p_diag.add_argument(
+        "--symptom", metavar="ID",
+        help="直接指定症状 id（先用 symptoms 命令看有哪些）",
+    )
+    p_diag.add_argument(
+        "--profile", metavar="NAME",
+        help="指定用于诊断的耗材 profile（默认用第一份）",
+    )
+    p_diag.add_argument(
+        "--brief", action="store_true",
+        help="精简输出（不显示「已排除」项的依据）",
+    )
+
+    sub.add_parser("symptoms", parents=[common], help="列出所有已知症状")
+
+    # ---- check：profile 体检 ------------------------------------------------
     p_check = sub.add_parser(
         "check", parents=[common], help="体检：找出 profile 里的参数隐患（默认）"
     )
@@ -81,14 +110,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="列出被配置豁免的发现（默认只报数量）",
     )
 
+    # ---- extract / report / export -----------------------------------------
     p_extract = sub.add_parser(
         "extract", parents=[common], help="生成 profile 档案（markdown）"
     )
     p_extract.add_argument(
-        "-o",
-        "--out",
-        metavar="DIR",
-        default=DEFAULT_OUT_DIR,
+        "-o", "--out", metavar="DIR", default=DEFAULT_OUT_DIR,
         help=f"输出目录（默认 {DEFAULT_OUT_DIR}/）",
     )
 
@@ -115,10 +142,18 @@ def load_index(args: argparse.Namespace) -> ProfileIndex:
     if not index.user:
         print(
             "提示：没有找到任何自定义 profile（user 目录是空的）。"
-            "体检结果会是空的——先去 Bambu Studio 里存一个自己的 profile 再来。",
+            "先去 Bambu Studio 里存一个自己的 profile 再来。",
             file=sys.stderr,
         )
     return index
+
+
+def load_knowledge() -> KnowledgeBase:
+    try:
+        return KnowledgeBase.load()
+    except KnowledgeError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
 
 def _load_rule_config(args: argparse.Namespace):
@@ -128,6 +163,64 @@ def _load_rule_config(args: argparse.Namespace):
         print(f"错误：{exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
+
+# ------------------------------------------------------------------ 诊断
+
+def print_symptom_list(kb: KnowledgeBase) -> None:
+    print("已知症状：\n")
+    for symptom in sorted(kb.symptoms.values(), key=lambda s: s.id):
+        print(f"  {symptom.id}")
+        print(f"    {symptom.name} —— {symptom.description}")
+        if symptom.keywords:
+            print(f"    可以这样说：{'、'.join(symptom.keywords[:8])}")
+        print()
+
+
+def cmd_diagnose(args: argparse.Namespace) -> int:
+    kb = load_knowledge()
+    index = load_index(args)
+
+    # 定症状：--symptom 优先，其次文字匹配
+    if args.symptom:
+        if kb.get_symptom(args.symptom) is None:
+            print(f"错误：未知症状「{args.symptom}」\n", file=sys.stderr)
+            print_symptom_list(kb)
+            return 2
+        symptom_id = args.symptom
+    elif args.text:
+        hits = kb.match_symptoms(args.text)
+        if not hits:
+            print(f"没从「{args.text}」里认出已知症状。\n", file=sys.stderr)
+            print_symptom_list(kb)
+            return 2
+        symptom_id = hits[0][0].id
+        if len(hits) > 1:
+            others = "、".join(s.name for s, _ in hits[1:4])
+            print(f"（匹配到多个症状，按最接近的「{hits[0][0].name}」判断；也可能是：{others}）\n")
+    else:
+        print_symptom_list(kb)
+        print('用法：bambu-doctor diagnose "你的现象描述"')
+        print("      或 bambu-doctor diagnose --symptom <id>")
+        return 2
+
+    try:
+        report = diagnose(index, kb, symptom_id, profile_name=args.profile)
+    except ValueError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    print(render_text(report, show_evidence=not args.brief))
+
+    # 判断成立时退出码非 0，便于脚本判断"有没有发现问题"
+    return 1 if report.group("confirmed") else 0
+
+
+def cmd_symptoms(args: argparse.Namespace) -> int:
+    print_symptom_list(load_knowledge())
+    return 0
+
+
+# ------------------------------------------------------------------ 体检
 
 def cmd_check(args: argparse.Namespace) -> int:
     index = load_index(args)
@@ -208,6 +301,8 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 COMMANDS = {
+    "diagnose": cmd_diagnose,
+    "symptoms": cmd_symptoms,
     "check": cmd_check,
     "extract": cmd_extract,
     "report": cmd_report,

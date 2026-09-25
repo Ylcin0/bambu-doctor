@@ -1,0 +1,256 @@
+# 根因库
+#
+# 每条根因描述一个"可能导致打印问题的原因"。症状（symptoms.toml）通过 id 引用它们。
+#
+# ⚠️ 这些知识全部来自实战踩坑总结（作者自己的机器上验证过），不是从别处抄的参数表。
+#    欢迎通过 PR 补充——但请连同"什么情况下成立的证据"一起提。
+#
+# ── 字段说明 ──────────────────────────────────────────────────────────
+#
+# id          唯一标识
+# name        人话名称
+# mechanism   机理：为什么它会导致那个症状
+# verifiable  "auto"   = 工具能用你的参数自动验证（有 checks）
+#             "manual" = 需要你自己动手检查（工具会给出检查方法）
+# confidence  high / medium / low —— 结论可信度，影响输出措辞
+# applies     适用条件，不满足时工具要明说"这条不适用于你的配置"
+# action      建议动作
+# cost        代价（改这个会失去什么）
+# verify      改完怎么确认有效
+# checks      工具如何验证它成立（verifiable = auto 时必须有）
+#   kind:
+#     param_vs_baseline      参数 vs 本机型官方基线
+#     param_range            参数是否落在合理区间
+#                              min = 合理下限（值**低于**它就报 → 用于"不足"类问题）
+#                              max = 合理上限（值**高于**它就报 → 用于"过大"类问题）
+#                              ⚠️ 这两个极容易写反。问自己：我要报的是"太小"还是"太大"？
+#                                 "太小"→ min，"太大"→ max。写反了测试会挂。
+#     param_unset            参数未设置（会静默回落到上一层）
+#     param_absolute         参数 vs 固定值
+#     inherit_cross_machine  继承链里出现了别的机型
+#     machine_setting        读机器级设置的某个值
+#   op: gt / lt / eq / ne   （对 param_* 系列有效）
+
+# ══════════════════════════════════════════════════════════════════════
+# 一、温度类
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "temp-high"
+name = "喷嘴温度偏高"
+mechanism = "熔体黏度随温度升高而降低，挤出口拖尾增多，在转角、孔边和孤立特征处表现为细丝"
+verifiable = "auto"
+confidence = "high"
+action = "把喷嘴温度降到本机型官方基线值"
+cost = "层间结合强度略降；承重件若强度吃紧，先只降 5℃ 试探"
+verify = "同模型重打，细拉丝应明显减少到「一吹就断」的程度"
+note = "若这份 profile 继承的是别的机型的预设，温度偏高通常就是这么来的（封闭机箱机型比开放机型设得高）"
+checks = [
+  { kind = "param_vs_baseline", param = "nozzle_temperature", op = "gt", delta = 5 },
+]
+
+[[cause]]
+id = "temp-low"
+name = "喷嘴温度偏低"
+mechanism = "料太稠，流动性不足，层间来不及融合；挤出阻力也大"
+verifiable = "auto"
+confidence = "high"
+action = "把喷嘴温度提到本机型官方基线附近"
+cost = "温度越高拉丝和渗料越明显；升高后要重新看外观"
+verify = "层间结合变好，薄壁件不容易一掰就分层"
+checks = [
+  { kind = "param_vs_baseline", param = "nozzle_temperature", op = "lt", delta = 5 },
+]
+
+# ══════════════════════════════════════════════════════════════════════
+# 二、回抽类
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "retract-low"
+name = "回抽长度不足"
+mechanism = "空驶前没有把熔体拉回足够距离，喷嘴带料移动，在起身点留下细丝"
+verifiable = "auto"
+confidence = "high"
+applies = { filament_type = ["PETG", "TPU", "PLA"] }
+action = "把回抽长度往甜点区中部调（直接驱动 0.8~1.2mm）"
+cost = "回抽过大反而会吸空气、吐气泡料（见 retract-high）"
+verify = "回抽塔测试：找最小能消除拉丝的值"
+note = "官方默认值通常偏保守（直接驱动机型常见 0.4mm），出现细拉丝时往上试到甜点区中部是常见做法"
+checks = [
+  { kind = "param_range", param = "filament_retraction_length", min = 0.8 },
+]
+
+[[cause]]
+id = "retract-high"
+name = "回抽过长"
+mechanism = "回抽距离过大，喷嘴内部吸入空气，恢复挤出时先吐出气泡料，形成粗短颗粒或小孔"
+verifiable = "auto"
+confidence = "high"
+applies = { filament_type = ["PETG", "PLA"] }
+action = "把回抽长度降到甜点区（0.8~1.2mm）"
+cost = "回抽不足会回到细拉丝"
+verify = "粗短颗粒减少；回抽塔上 1.4~1.6 段出现缺料/气泡即证明过头"
+checks = [
+  { kind = "param_range", param = "filament_retraction_length", max = 1.5 },
+]
+
+[[cause]]
+id = "retract-unset"
+name = "回抽长度未设置（静默回落到机器级）"
+mechanism = "耗材档里没设回抽时，实际生效的是打印机设置里的值。多数人以为用的是耗材档的设定"
+verifiable = "auto"
+confidence = "high"
+action = "确认实际生效值是否符合预期；不符就在耗材档里显式设一个"
+cost = "无（只是把隐式行为变显式）"
+verify = "改完再跑一次体检，确认该参数有明确值"
+checks = [
+  { kind = "param_unset", param = "filament_retraction_length" },
+]
+
+[[cause]]
+id = "wipe-missing"
+name = "擦拭前回抽未开"
+mechanism = "先移动再回抽，喷嘴带料跑过表面，留下拖痕或疙瘩"
+verifiable = "auto"
+confidence = "medium"
+action = "打开擦拭（Wipe），擦拭前回抽量设 50%"
+cost = "几乎无"
+verify = "表面拖痕减少"
+checks = [
+  { kind = "param_unset", param = "retract_before_wipe" },
+  { kind = "param_absolute", param = "retract_before_wipe", op = "eq", value = "0%" },
+]
+
+# ══════════════════════════════════════════════════════════════════════
+# 三、挤出量类
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "over-extrusion"
+name = "流量比偏高（过挤出）"
+mechanism = "挤出量大于实际需要，多余料向两侧挤，表现为外壁偏大、孔偏小、表面粗糙"
+verifiable = "auto"
+confidence = "high"
+action = "校准流量比（Flow Ratio），以校准方块实测为准"
+cost = "流量偏低会出现填充空隙、层间结合变弱"
+verify = "外宽内窄消除；校准方块三个方向尺寸都在公差内"
+note = "切片器的 Flow Ratio 是静态基准，A1 的自动动态流量校准只修短期漂移，测不出材料基准偏差"
+checks = [
+  { kind = "param_vs_baseline", param = "filament_flow_ratio", op = "gt", delta = 0.02 },
+]
+
+[[cause]]
+id = "shrink-misconfigured"
+name = "收缩率补偿未设或设错"
+mechanism = "材料冷却收缩（PETG 约 0.3~0.5%），切片时按 100% 处理会让成品整体偏小"
+verifiable = "auto"
+confidence = "high"
+action = "按校准方块实测值回写收缩率（如实测 99.5% 就设 99.5%）"
+cost = "设得过头会让所有尺寸偏大"
+verify = "校准方块三个方向都量，与目标尺寸一致"
+note = "收缩率只影响 X/Y 的整体缩放；Z 向尺寸由层高、首层压扁和机械精度决定，调收缩率对 Z 无效"
+checks = [
+  { kind = "param_unset", param = "filament_shrink" },
+  { kind = "param_absolute", param = "filament_shrink", op = "eq", value = "100%" },
+]
+
+# ══════════════════════════════════════════════════════════════════════
+# 四、热床与首层
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "bed-temp-low"
+name = "热床温度低于打印板的适用下限"
+mechanism = "首层粘附力不足，打印中模型悄悄翘起或移位；机器不会报错，直到中段堆成炒面"
+verifiable = "auto"
+confidence = "high"
+action = "把床温设回打印板标注的区间内"
+cost = "床温过高会伤低温板涂层（别超上限）"
+verify = "首层线扁平且相邻充分融合；打印中途不再移位"
+note = "不同打印板的下限不同，要按板面标注来。本检查用保守阈值（低于 45℃ 一定有问题）——PETG 类材料建议 50℃ 以上；值为 0 表示该板型未启用，会跳过"
+checks = [
+  { kind = "param_range", param = "cool_plate_temp", min = 45, ignore_zero = true },
+  { kind = "param_range", param = "hot_plate_temp", min = 45, ignore_zero = true },
+  { kind = "param_range", param = "textured_plate_temp", min = 45, ignore_zero = true },
+]
+
+[[cause]]
+id = "first-layer-z-high"
+name = "首层 Z 偏高（没压实）"
+mechanism = "喷嘴离床太远，首层线呈圆柱状而非扁平状，接触面积小，粘附力不足"
+verifiable = "manual"
+confidence = "high"
+action = "降低首层 Z 偏移（或跑一次自动调平）"
+cost = "太低会刮板、出现波浪纹"
+verify = "首层线应是扁平的，且相邻线之间充分融合、看不到缝"
+manual_check = "看首层：线圆滚滚、能逐条分辨 = Z 太高；波浪纹 = Z 太低刮板"
+
+[[cause]]
+id = "poor-bed-adhesion"
+name = "床面污染（油污/指纹）"
+mechanism = "手印油污直接破坏首层的附着，是粘附失败的头号原因"
+verifiable = "manual"
+confidence = "high"
+action = "用干纸巾擦拭床面；低温涂层板不要用酒精或溶剂（会伤涂层）"
+cost = "无"
+verify = "首层粘附恢复正常"
+manual_check = "打印前干纸巾擦一遍床面——油污看不见，但一定影响粘附"
+
+# ══════════════════════════════════════════════════════════════════════
+# 五、耗材状态与硬件（工具查不了，但必须提醒）
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "wet-filament"
+name = "耗材受潮"
+mechanism = "水分在热端汽化，挤出时爆泡，表现为粗短颗粒、表面粗糙、伴随焦糊气味；也会加重拉丝"
+verifiable = "manual"
+confidence = "high"
+applies = { material = ["PETG", "TPU", "NYLON", "PC"] }
+action = "按材料要求烘干（PETG 65℃ / 6~8 小时；标签上的 50℃/4h 是保守值，有症状的料要加时间）"
+cost = "时间；烘干后要趁热打，PETG 放几小时就回潮"
+verify = "粗短颗粒消失；承重件建议用烘干后的料重打（受潮料层间有气泡，强度可能只剩六成）"
+manual_check = "密封平衡法：把料和湿度计一起密封一天，读数 <30% 干、40%+ 湿"
+note = "空气湿度不等于料含水率，别拿房间湿度当依据"
+
+[[cause]]
+id = "hotend-partial-clog"
+name = "热端部分堵塞（残留碳化物）"
+mechanism = "焦化的残留物附着在热端内壁，打印中逐渐积累，流量渐进下降；完全堵死前不会有任何报错"
+verifiable = "manual"
+confidence = "high"
+action = "冷拔清洁 2~3 次，或拆热端彻底清理"
+cost = "停机时间"
+verify = "手动推料顺畅均匀笔直；打印中不再出现流量忽大忽小"
+manual_check = "1 分钟定位：喷嘴加热到打印温度，手动挤出——顺畅/均匀/笔直 = 热端通；阻力大/流量忽大忽小/料流扭曲 = 部分堵塞"
+note = "参数救不了这个：降温度会让料更稠、更容易堵，反而加重"
+
+[[cause]]
+id = "heat-soak"
+name = "长时间打印的热积累"
+mechanism = "连续打印后喷嘴外壁持续积料，越打越多；厚件、长时间件才出现"
+verifiable = "manual"
+confidence = "medium"
+action = "中途暂停擦一次喷嘴；或降低温度、开启最小层时间让每层有时间冷却"
+cost = "降温度会影响层间强度"
+verify = "暂停擦喷嘴后立刻恢复干净 = 实锤是这个原因"
+manual_check = "打到一半暂停，擦干净喷嘴再继续——问题立刻消失就说明是热积累"
+
+# ══════════════════════════════════════════════════════════════════════
+# 六、元根因：继承链本身的问题
+# ══════════════════════════════════════════════════════════════════════
+
+[[cause]]
+id = "cross-machine-inherit"
+name = "profile 继承了别的机型的预设"
+mechanism = "不同机型的官方预设是按各自硬件调的——封闭机箱机型与开放机型的腔温、风扇逻辑、温度上限都不一样，整套参数搬过来会有系统性偏差"
+verifiable = "auto"
+confidence = "high"
+action = "改成继承本机型的对应预设，或逐项核对并显式覆盖差异项"
+cost = "重新核对一遍参数（工具会给出差异清单）"
+verify = "体检里不再报跨机型继承；温度等关键项回到本机型基线附近"
+note = "这不是直接症状，而是很多症状的共同来源——发现它之后要连带检查温度、风扇、腔体相关参数"
+checks = [
+  { kind = "inherit_cross_machine" },
+]

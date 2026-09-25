@@ -1,0 +1,130 @@
+# 症状库
+#
+# 每个症状描述"用户能观察到的现象"。诊断 = 症状 × 根因 × 用户的实际参数。
+#
+# 设计要点：
+#   - keywords 用于文字匹配（用户说"拉丝"要能命中 thin-stringing）
+#   - distinguishing 帮用户对号入座，也帮工具排除相似症状
+#   - branch 处理"同一个现象有多个分支"的情况（如炒面从哪开始乱，指向完全不同的根因）
+#   - causes 按可能性排序，工具会逐个用用户的参数验证，分成 判断/次要/已排除 三组
+#
+# 同样欢迎 PR 补充——尤其是你在你机器上真实遇到、但这里没写的现象。
+
+# ══════════════════════════════════════════════════════════════════════
+# 表面质量
+# ══════════════════════════════════════════════════════════════════════
+
+[[symptom]]
+id = "thin-stringing"
+name = "细拉丝（蜘蛛网状）"
+description = "表面有细如发丝的拉丝，多在转角、孔边、孤立特征之间"
+keywords = ["拉丝", "细丝", "蜘蛛网", "抽丝", "毛丝", "stringing", "拉线", "细毛"]
+causes = ["temp-high", "retract-low", "cross-machine-inherit", "wet-filament", "wipe-missing"]
+
+# 帮用户对号入座 / 帮工具排除相似症状
+distinguishing = [
+  "细：像头发，不是颗粒状",
+  "薄件、小件也有（不是打到很厚才出现）",
+  "一吹就断、一擦就掉 = 正常水平；粗、粘得牢、刮不掉 = 还有别的问题",
+]
+questions = [
+  { ask = "这卷料烘干过吗？", done = "烘干后排除了受潮因素", pending = "先烘干再判断——受潮会加重拉丝，不先排除会调错方向" },
+]
+
+# ══════════════════════════════════════════════════════════════════════
+
+[[symptom]]
+id = "blobs"
+name = "粗短颗粒 / 疙瘩"
+description = "表面有粗短的颗粒或疙瘩，不是细丝；摸上去有明显凸起"
+keywords = ["粗短", "颗粒", "疙瘩", "毛刺", "小包", "凸起", "blob", "粗糙", "麻点"]
+causes = ["wet-filament", "retract-high", "heat-soak", "cross-machine-inherit"]
+
+distinguishing = [
+  "粗：是小颗粒/疙瘩，不是细丝（细丝看 thin-stringing）",
+  "受潮的颗粒常伴随表面发泡、粗糙，甚至焦糊气味",
+  "回抽过大的颗粒多见于空驶之后恢复挤出的位置",
+  "越打越多、厚件才出现 = 热积累（暂停擦喷嘴能立刻验证）",
+]
+questions = [
+  { ask = "这卷料烘干过吗？", done = "烘干后排除了受潮", pending = "先烘干——受潮是这类症状的头号原因" },
+  { ask = "是打到很厚、很久之后才出现的吗？", done = "倾向热积累（heat-soak）", pending = "倾向受潮或回抽问题" },
+]
+
+# ══════════════════════════════════════════════════════════════════════
+# 打印失败
+# ══════════════════════════════════════════════════════════════════════
+
+[[symptom]]
+id = "spaghetti"
+name = "炒面（堆成一团乱丝）"
+description = "模型没打成，喷头空走把料堆成乱麻；通常打印中或打印后发现"
+keywords = ["炒面", "乱丝", "一团", "失败", "spaghetti", "堆料", "拉丝堆", "打废"]
+causes = ["poor-bed-adhesion", "hotend-partial-clog", "first-layer-z-high", "wet-filament"]
+
+distinguishing = [
+  "本质是模型脱离热床、或挤出中断，但喷头仍按路径移动",
+  "**从哪开始乱**是判别入口——首层脱落和热端堵塞的解法完全不同",
+  "机器全程没报错 = 渐进性问题（完全堵死或完全断料都会报警）",
+]
+
+# 关键分支：同一个现象，根因完全不同
+[[symptom.branch]]
+question = "从哪一层开始乱的？"
+[[symptom.branch.option]]
+answer = "底部就开始乱（第一层就没打好）"
+causes = ["poor-bed-adhesion", "first-layer-z-high", "bed-temp-low"]
+[[symptom.branch.option]]
+answer = "前几层是好的，中段才开始乱"
+causes = ["hotend-partial-clog", "poor-bed-adhesion", "wet-filament"]
+
+[[symptom.branch]]
+question = "打印过程中机器报错了吗？"
+[[symptom.branch.option]]
+answer = "完全没报错"
+note = "无报错 = 渐进性流量下降或间歇送料，不是完全中断。优先查热端部分堵塞和首层弱粘附（弱粘附会让模型悄悄移位，机器检测不到）"
+[[symptom.branch.option]]
+answer = "报了错（扭矩/断料之类）"
+note = "有明确报错说明是完全中断，按报错内容直接排查，不走本症状的推理"
+
+# ══════════════════════════════════════════════════════════════════════
+# 尺寸
+# ══════════════════════════════════════════════════════════════════════
+
+[[symptom]]
+id = "dimension-off"
+name = "尺寸不对（卡尺量出来有偏差）"
+description = "打出来的件尺寸和模型对不上"
+keywords = ["尺寸", "偏大", "偏小", "公差", "卡尺", "装不上", "塞不进", "孔小", "柱粗", "dimension"]
+causes = ["over-extrusion", "shrink-misconfigured"]
+
+distinguishing = [
+  "**先判方向，再谈原因**——方向不同，根因完全不同",
+  "收缩率是均匀等比缩放（0.3% 级，100mm 件偏 0.3mm），只让所有尺寸同方向变",
+  "过挤出是外大内小（柱子粗、孔变小），影响 0.2~0.5mm，比收缩率大一个数量级",
+]
+
+# 方向判别是这个症状的核心
+[[symptom.branch]]
+question = "偏差是什么方向？"
+[[symptom.branch.option]]
+answer = "所有尺寸都均匀偏小（0.1~0.3% 那种）"
+causes = ["shrink-misconfigured"]
+[[symptom.branch.option]]
+answer = "外大内小（柱粗、孔小），或者表面偏粗糙"
+causes = ["over-extrusion"]
+[[symptom.branch.option]]
+answer = "只有孔偏小，外形尺寸正常"
+causes = ["over-extrusion"]
+[[symptom.branch.option]]
+answer = "两个方向相反（比如某处偏大、另一处偏小）"
+note = "这不是单一均匀因素造成的，是两个独立根因叠加。分别量准，逐个解决，不要指望一个参数搞定"
+
+[[symptom.branch]]
+question = "偏的是哪个方向？"
+[[symptom.branch.option]]
+answer = "X/Y 方向（平面尺寸）"
+note = "收缩率只管 X/Y。以校准方块实测值为准回写"
+[[symptom.branch.option]]
+answer = "Z 方向（高度）"
+note = "Z 向尺寸由层高×层数、首层压扁（象脚）和 Z 机械精度决定——调收缩率对 Z 无效，要调层高/首层/机械"
