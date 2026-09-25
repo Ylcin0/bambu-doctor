@@ -254,3 +254,162 @@ note = "这不是直接症状，而是很多症状的共同来源——发现它
 checks = [
   { kind = "inherit_cross_machine" },
 ]
+
+# ══════════════════════════════════════════════════════════════════════
+# 七、透明件专用
+# ══════════════════════════════════════════════════════════════════════
+#
+# 打透明件时目标不是"打得干净"，而是"让光穿过去"。光被两类东西挡住：
+#   1. 层与层之间的界面（融合不充分）
+#   2. 线条之间和内部的空隙（填充不满、水汽气泡）
+# 于是参数方向跟平常常常相反：流量宁高勿低、风扇要关、墙要少。
+#
+# 下面这些根因只在"目标是透光"时成立。依据是 Bambu Lab 官方
+# 《透明/半透明 PLA/PETG 耗材打印指南》。
+
+[[cause]]
+id = "fan-on-for-clarity"
+name = "冷却风扇没关（透明件要求全关）"
+mechanism = "风扇让线条过快冷却定型，上层还没和下层熔合就固化了，界面被保留下来。每个没融合的界面都会散射光"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "把这卷料的 fan_max_speed 和 fan_min_speed 都设为 0（Bambu Studio：耗材设置 → 冷却）"
+cost = "关风扇会增加塌陷和翘边风险，悬垂和大平面尤其明显"
+verify = "打一个 20mm 立方体，侧面层线是否变淡"
+note = "官方指南把它列为透明打印的必改项。风扇参数在耗材档里，不在工艺档"
+checks = [
+  { kind = "param_range", param = "fan_max_speed", max = 1 },
+  { kind = "param_range", param = "fan_min_speed", max = 1 },
+]
+
+[[cause]]
+id = "layer-height-large-for-clarity"
+name = "层高偏大（透明件建议 0.1mm）"
+mechanism = "层越厚，上层能压合进下层的深度越浅，层间界面越明显。薄层能让两层真正熔在一起，界面消失"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "透明工艺档里把层高设为 0.1mm"
+cost = "打印时间大幅增加（层数翻倍）"
+verify = "侧面层线变淡、透光更均匀"
+note = "官方的示例是 0.1mm 层高 + 0.5mm 线宽的组合：扁而宽的线条，层间压合面积大"
+checks = [
+  { kind = "param_range", param = "layer_height", max = 0.15 },
+]
+
+[[cause]]
+id = "line-width-narrow-for-clarity"
+name = "线宽偏窄（透明件建议 0.5mm）"
+mechanism = "线宽越窄，相邻线条之间要填的缝越多，残留空隙也越多；宽线条截面扁平，能压进相邻线条里"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "线宽调到 0.5mm（外墙、内墙、稀疏填充、顶面、底面都设）"
+cost = "细节精度下降，细小特征打不出来"
+verify = "对着光看，线条之间的竖缝减少"
+checks = [
+  { kind = "param_range", param = "line_width", min = 0.45 },
+]
+
+[[cause]]
+id = "too-many-walls-for-clarity"
+name = "墙层数太多（透明件只要 1 层）"
+mechanism = "每多一层墙就多一个层间界面，墙与填充之间还会多一道交界缝。透明件只需要 1 层墙撑出外形，内部交给 100% 填充"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "墙层数设为 1"
+cost = "强度下降——透明件多是展示用途，一般可以接受"
+verify = "对着光看，内部条纹减少"
+checks = [
+  { kind = "param_range", param = "wall_loops", max = 1 },
+]
+
+[[cause]]
+id = "shells-not-removed"
+name = "顶壳/底壳没有去掉（透明件要设 0 层）"
+mechanism = "顶壳底壳的走线方向和填充不同，交界处会形成额外的散射面；去掉它们让填充直接通到底，整个件层方向一致"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "顶壳层数和底壳层数都设为 0"
+cost = "顶面会露出填充纹理（透明件要的就是这个效果）"
+verify = "侧面和顶面的透光表现一致"
+checks = [
+  { kind = "param_absolute", param = "top_shell_layers", value = "0", op = "ne" },
+  { kind = "param_absolute", param = "bottom_shell_layers", value = "0", op = "ne" },
+]
+
+[[cause]]
+id = "infill-not-solid"
+name = "填充密度不足（透明件要 100%）"
+mechanism = "内部空隙是最大的散射源——光进去后在空腔里乱反射，出来就是一片白雾。100% 填充把内部变成实心"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "稀疏填充密度设为 100%"
+cost = "耗材用量和打印时间都明显上去"
+verify = "整体不再发雾、有通透感"
+checks = [
+  { kind = "param_range", param = "sparse_infill_density", min = 99 },
+]
+
+[[cause]]
+id = "infill-pattern-wrong"
+name = "填充图案不是直线"
+mechanism = "网格、立方这些图案会让线条反复交叉换向，每次换向都制造一个交界和一段空隙；直线填充让线条同向排列，光路一致"
+verifiable = "auto"
+confidence = "medium"
+applies = { goal = "transparent" }
+action = "填充图案改为「直线」，填充方向设 0° 或 90°"
+cost = "单向填充的抗压强度不如网格（展示件无所谓）"
+verify = "对着光看没有交叉纹路"
+note = "不同切片器版本里这个选项的取值名可能不同（line / monotonic），以界面显示为准"
+checks = [
+  { kind = "param_absolute", param = "sparse_infill_pattern", value = "line", op = "ne" },
+]
+
+[[cause]]
+id = "speed-too-fast-for-clarity"
+name = "打印速度过快（透明件建议 20mm/s）"
+mechanism = "速度快，上一层还没冷透、这一层也没充分贴合就被拉走，层间融合的时间被压缩掉了"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "外墙、内墙、填充、顶底面的速度都降到 20mm/s"
+cost = "打印时间大幅增加"
+verify = "层线变淡、侧面更通透"
+checks = [
+  { kind = "param_range", param = "outer_wall_speed", max = 30, ignore_zero = true },
+]
+
+[[cause]]
+id = "flow-ratio-low-for-clarity"
+name = "流量比偏低（透明件要往高调）"
+mechanism = "流量不足时相邻线条之间填不满，留下细缝，每条缝就是一条散射线。透明件对流量的态度是宁高勿低"
+verifiable = "auto"
+confidence = "high"
+applies = { goal = "transparent" }
+action = "流量比往 0.98 调，不够再逐步到 1.02"
+cost = "太高会过挤出，表面变糙、尺寸变大"
+verify = "侧面竖缝减少，同时表面没有变粗糙"
+note = "如果这卷料是烘干后重新用的，原来的流量比可能是在受潮状态下校准的（受潮料的校准结果不适用于干燥料），可以借这次重新校一遍"
+checks = [
+  { kind = "param_range", param = "filament_flow_ratio", min = 0.96 },
+]
+
+[[cause]]
+id = "nozzle-temp-low-for-clarity"
+name = "喷嘴温度偏低（透明件要高温）"
+mechanism = "温度越高熔体流动性越好，上层能更充分熔合下层；温度偏低时界面处留着未熔合的边界，直接散射光"
+verifiable = "auto"
+confidence = "medium"
+applies = { goal = "transparent", filament_type = ["PETG", "PLA"] }
+action = "喷嘴温度往上提 5~10℃ 试（别超过这卷料的上限）"
+cost = "过高会拉丝、垂料，PETG 还容易在喷嘴上结焦"
+verify = "层线变淡，同时没有开始拉丝"
+note = "官方指南只说「使用高温设置」，没给具体数值——这条的阈值是经验值，属于「可能」而不是「确定」"
+checks = [
+  { kind = "param_range", param = "nozzle_temperature", min = 250 },
+]

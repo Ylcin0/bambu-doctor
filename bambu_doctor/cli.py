@@ -85,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="指定用于诊断的耗材 profile（默认用第一份）",
     )
     p_diag.add_argument(
+        "--process", metavar="NAME",
+        help="指定工艺 profile（层高/填充/速度读它；默认用第一份）",
+    )
+    p_diag.add_argument(
         "--brief", action="store_true",
         help="精简输出（不显示「已排除」项的依据）",
     )
@@ -216,7 +220,11 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        report = diagnose(index, kb, symptom_id, profile_name=args.profile)
+        report = diagnose(
+            index, kb, symptom_id,
+            profile_name=args.profile,
+            process_name=getattr(args, "process", None),
+        )
     except ValueError as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2

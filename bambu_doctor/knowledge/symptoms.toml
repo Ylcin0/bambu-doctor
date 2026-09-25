@@ -128,3 +128,38 @@ note = "收缩率只管 X/Y。以校准方块实测值为准回写"
 [[symptom.branch.option]]
 answer = "Z 方向（高度）"
 note = "Z 向尺寸由层高×层数、首层压扁（象脚）和 Z 机械精度决定——调收缩率对 Z 无效，要调层高/首层/机械"
+
+# ══════════════════════════════════════════════════════════════════════
+# 透明件专用
+# ══════════════════════════════════════════════════════════════════════
+
+[[symptom]]
+id = "cloudy"
+name = "透光差 / 发雾"
+description = "件不透亮，看着发白、雾蒙蒙；对着光看是一片浑的"
+keywords = ["发雾", "发白", "不透光", "不透明", "浑浊", "雾状", "透明度差", "透光差", "白蒙蒙", "不够透", "打不透"]
+causes = ["wet-filament", "fan-on-for-clarity", "infill-not-solid", "layer-height-large-for-clarity", "flow-ratio-low-for-clarity", "nozzle-temp-low-for-clarity"]
+distinguishing = [
+  "发雾是**整体性**的：整个件都浑，不是局部发白",
+  "如果表面一层发白、内部通透 → 是表面粗糙度问题，打磨能救回来",
+  "如果内部能看到一个个白点或黑洞 → 填充没打满，或者料里的水汽变成了气泡",
+]
+questions = [
+  { ask = "打之前这卷料烘干过吗？", pending = "受潮是发雾的头号原因，排在所有参数问题之前——先排除它，再谈调参数" },
+  { ask = "是对着光看浑，还是表面摸起来粗糙？", pending = "表面粗糙是另一条线（打磨能救），内部浑才是参数问题" },
+]
+
+[[symptom]]
+id = "vertical-streaks"
+name = "纵向条纹 / 能看到层线"
+description = "侧面能看到一条条纹路或竖缝，对着光看层次分明、不平整"
+keywords = ["条纹", "竖纹", "层纹", "层线", "层间缝", "层分离", "有纹路", "一层一层", "不平整"]
+causes = ["nozzle-temp-low-for-clarity", "speed-too-fast-for-clarity", "flow-ratio-low-for-clarity", "line-width-narrow-for-clarity", "shells-not-removed", "too-many-walls-for-clarity"]
+distinguishing = [
+  "**横向**的层线（一圈圈）→ 层间融合问题：温度、速度、风扇",
+  "**竖向**的条纹（一条条）→ 线条之间没填满：流量、线宽",
+  "整块歪斜错位 → 那是机械/皮带问题，不是参数能解决的",
+]
+questions = [
+  { ask = "纹路是横向一圈圈的，还是竖向一条条的？", pending = "横向和竖向的根因完全不同，是两条线——先分清再调" },
+]

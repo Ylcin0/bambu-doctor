@@ -48,6 +48,8 @@ def _num(value) -> float | None:
     text = normalize(value)
     if text == "nil":
         return None
+    # Bambu 把百分比存成带 % 的字符串（如 "12%"）
+    text = text.rstrip("%").strip()
     try:
         return float(text)
     except ValueError:
@@ -57,13 +59,34 @@ def _num(value) -> float | None:
 class Verifier:
     """用某个 profile 的真实参数，验证一条根因是否成立。"""
 
-    def __init__(self, index: ProfileIndex, profile_name: str, target: str):
+    def __init__(self, index: ProfileIndex, profile_name: str, target: str,
+                 process_name: str | None = None):
         self.index = index
         self.profile_name = profile_name
         self.target = target
         self.values, self.layers = index.resolve(profile_name)
+        self.process_values, self.process_layers = self._process_context(process_name)
         self.machine_values, self.machine_layers = self._machine_context()
         self.baseline_values, self.baseline_name = self._find_baseline()
+
+    def _process_context(self, name: str | None) -> tuple[dict, dict[str, str]]:
+        """
+        工艺参数（层高、填充、风扇、速度……）。
+
+        这些**不在耗材档里**，而在工艺档里。诊断"为了透光该怎么改"这类问题时
+        必须看工艺档，否则会把用户已经调好的层高判成"没设置"。
+        """
+        if name:
+            try:
+                return self.index.resolve(name)
+            except Exception:
+                return {}, {}
+        for profile in self.index.profiles(origin=ORIGIN_USER, kind="process"):
+            try:
+                return self.index.resolve(profile.name)
+            except Exception:
+                continue
+        return {}, {}
 
     # ------------------------------------------------------------ 参数查找
 
@@ -80,17 +103,20 @@ class Verifier:
 
     def _lookup(self, param: str) -> tuple[object, str]:
         """
-        按实际生效顺序查找参数：耗材档 → 机器档。
+        按实际生效顺序查找参数：耗材档 → 工艺档 → 机器档。
 
-        Bambu 的优先级是耗材设置覆盖机器设置；两边都没有才算真正未设置。
+        Bambu 的参数分散在三类 profile 里，诊断时必须一起看。
+        只看一类，就会把"定义在别处的参数"误判成"整条链上都没人设过"。
         返回 (值, 来自哪一层)。
         """
-        value = self.values.get(param)
-        if not is_unset(value):
-            return value, self.layers.get(param, "")
-        value = self.machine_values.get(param)
-        if not is_unset(value):
-            return value, self.machine_layers.get(param, "")
+        for values, layers in (
+            (self.values, self.layers),
+            (self.process_values, self.process_layers),
+            (self.machine_values, self.machine_layers),
+        ):
+            value = values.get(param)
+            if not is_unset(value):
+                return value, layers.get(param, "")
         return None, ""
 
     # ------------------------------------------------------------ 基线
@@ -236,6 +262,7 @@ def diagnose(
     symptom_id: str,
     profile_name: str | None = None,
     answers: dict[str, str] | None = None,
+    process_name: str | None = None,
 ) -> Report:
     symptom = kb.get_symptom(symptom_id)
     if symptom is None:
@@ -256,7 +283,7 @@ def diagnose(
     else:
         profile = filaments[0]
 
-    verifier = Verifier(index, profile.name, target)
+    verifier = Verifier(index, profile.name, target, process_name=process_name)
     report = Report(symptom=symptom, profile_name=profile.name, target_machine=target)
 
     for cause_id in symptom.causes_for(answers):
@@ -272,6 +299,14 @@ def diagnose(
         )
     if not verifier.baseline_name:
         report.notes.append("没找到本机型对应的官方耗材基线，涉及「与官方值对比」的判断会跳过。")
+
+    processes = index.profiles(origin=ORIGIN_USER, kind="process")
+    if len(processes) > 1:
+        used = process_name or processes[0].name
+        report.notes.append(
+            f"你有 {len(processes)} 份工艺档，层高/填充/速度这类设置读的是「{used}」；"
+            f"要换一份用 --process 指定。"
+        )
 
     return report
 
